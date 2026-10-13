@@ -1,41 +1,44 @@
-# AtmosphereUSBLoader — Phase 1
+# AtmosphereUSBLoader — Phase 2
 
-This directory contains an **experimental, read-only, platform-neutral block-device prototype**.
-It is **not** a Nintendo Switch USB driver and is not linked into any Atmosphère build.
+A read-only, platform-neutral prototype for USB mass-storage integration. It is
+**not yet a Switch USB driver**, does not mount FAT/exFAT, and is not linked into
+Atmosphère's production build.
 
-## Verified integration context
+## Modules
 
-- `stratosphere/ams_mitm/source/fs_mitm/` contains filesystem MITM interfaces.
-- `emummc/` implements an SDMMC driver replacement, not a USB Mass Storage backend.
-- Atmosphère's root build uses Makefiles; this prototype has its own optional
-  CMake host tests and does not modify upstream build targets.
+- `include/usb_loader/block_device.hpp`: validated read-only sector interface.
+- `include/usb_loader/scsi_disk.hpp`: SCSI READ CAPACITY(10) and READ(10), behind
+  a transport-agnostic `ScsiDataIn` callback.
+- `tests/`: fake-disk and fake-SCSI host tests.
 
-## Build and test on a PC
+The callback must complete one full SCSI data-in operation, including transport
+status and exact transfer-length validation. Passing raw USB bulk transactions
+as this callback is incorrect. USB Mass Storage Bulk-Only Transport (CBW,
+CSW, endpoints, resets, stall recovery, and sense data) is not implemented.
+
+The current SCSI reader supports devices reporting capacity via READ CAPACITY(10)
+(up to 2^32 sectors) and transfers of at most 65535 sectors per READ(10). A
+READ CAPACITY(16)/READ(16) implementation and request chunking are future work.
+
+## Test on a workstation
 
 ```sh
-cmake -S usb_loader -B /tmp/atmosphere-usb-loader-build
-cmake --build /tmp/atmosphere-usb-loader-build
-ctest --test-dir /tmp/atmosphere-usb-loader-build --output-on-failure
+cmake -S usb_loader -B build-usb-loader -DCMAKE_BUILD_TYPE=Debug
+cmake --build build-usb-loader --parallel
+ctest --test-dir build-usb-loader --output-on-failure
 ```
 
-## Scope and safety
+## Integration boundary and safety
 
-The `ReadOnlyBlockDevice` wrapper validates geometry, reads, and disconnection
-state before dispatching to an injected sector reader. The fake-disk tests
-exercise successful reads, bounds checks, bad geometry, I/O failure, and unplug
-state. No writes, partition parsing, USB protocol, FAT/exFAT, or title mounting
-are implemented.
-
-**Important:** The abstraction is not thread-safe. A future USB backend must
-serialize device removal with outstanding reads, invalidate in-flight requests,
-and handle USB transport errors without accessing stale device contexts.
+This is not thread-safe; callers must synchronize disconnect and in-flight
+I/O. Hardware backend integration must validate transfers, handle hot-unplug,
+check device readiness, and avoid reusing stale callbacks. No write commands
+are exposed. Upstream Atmosphère system components remain unchanged.
 
 ## Next milestones
 
-1. Identify a supported USB host API for the exact Switch runtime context.
-2. Implement USB Mass Storage discovery / transport in a separate backend.
-3. Add partition and filesystem handling with safe unmount/reconnect behavior.
-4. Explore a filesystem service integration point, initially read-only.
-5. Run CI/toolchain builds and hardware tests before using it on a console.
-
-Upstream Atmosphère modules are deliberately unchanged in this phase.
+1. Implement and fake-test USB Mass Storage Bulk-Only Transport (BOT).
+2. Identify usable USB host APIs in the Switch system-module context.
+3. Add host-controller/device-enumeration integration and safe hot-unplug.
+4. Add partition/filesystem support and read-only filesystem integration.
+5. Validate on target hardware, then evaluate opt-in writes if needed.
