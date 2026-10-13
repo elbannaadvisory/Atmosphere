@@ -1,0 +1,23 @@
+name: USB loader prototype tests
+
+on:
+  push:
+    branches:
+      - feature/usb-loader-prototype
+  pull_request:
+    paths:
+      - 'usb_loader/**'
+      - '.github/workflows/usb-loader-prototype.yml'
+  workflow_dispatch:
+
+jobs:
+  block-device:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S usb_loader -B build-usb-loader -DCMAKE_BUILD_TYPE=Debug
+      - name: Build
+        run: cmake --build build-usb-loader --parallel
+      - name: Test
+        run: ctest --test-dir build-usb-loader --output-on-failure
